@@ -1162,7 +1162,7 @@ with tab_assess:
 # EXPLAINABILITY
 # ============================================================
 
-with tab_explainability:
+with tab_explain:
 
     st.markdown(
         '<div class="section-title">Explainable AI Dashboard</div>',
