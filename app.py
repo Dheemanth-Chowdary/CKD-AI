@@ -401,12 +401,12 @@ with tab_assess:
 
     with c4:
         values["al"] = st.number_input(
-            "Albumin",
-            min_value=0.0,
-            value=max(0.0, get_default("al")),
-            step=1.0,
-        )
-
+    "Albumin",
+    min_value=0,
+    max_value=5,
+    value=int(get_default("al")),
+    step=1,
+)
 
     # --------------------------------------------------------
     # URINE ATTRIBUTES
@@ -418,11 +418,12 @@ with tab_assess:
 
     with c1:
         values["su"] = st.number_input(
-            "Sugar",
-            min_value=0.0,
-            value=max(0.0, get_default("su")),
-            step=1.0,
-        )
+    "Sugar",
+    min_value=0,
+    max_value=5,
+    value=int(get_default("su")),
+    step=1,
+)
 
     with c2:
         values["rbc"] = st.selectbox(
