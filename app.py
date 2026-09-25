@@ -20,17 +20,17 @@ st.set_page_config(
 
 
 # ============================================================
-# PATHS
+# PROJECT PATHS
 # ============================================================
 
-BASE = Path(__file__).resolve().parent
-ART = BASE / "artifacts"
+BASE_DIR = Path(__file__).resolve().parent
+ARTIFACT_DIR = BASE_DIR / "artifacts"
 
-MODEL_PATH = ART / "ckd_model.joblib"
-METADATA_PATH = ART / "metadata.json"
-METRICS_PATH = ART / "metrics.json"
-SHAP_PATH = ART / "shap_importance.json"
-DATASET_PATH = BASE / "ckd_dataset.csv"
+MODEL_PATH = ARTIFACT_DIR / "ckd_model.joblib"
+METADATA_PATH = ARTIFACT_DIR / "metadata.json"
+METRICS_PATH = ARTIFACT_DIR / "metrics.json"
+SHAP_PATH = ARTIFACT_DIR / "shap_importance.json"
+DATASET_PATH = BASE_DIR / "ckd_dataset.csv"
 
 
 # ============================================================
@@ -65,7 +65,7 @@ FEATURES = [
 ]
 
 
-DISPLAY = {
+DISPLAY_NAMES = {
     "age": "Age",
     "bp": "Blood Pressure",
     "sg": "Specific Gravity",
@@ -93,6 +93,7 @@ DISPLAY = {
 }
 
 
+# Binary features in the supplied dataset.
 BINARY_FEATURES = {
     "rbc",
     "pc",
@@ -107,160 +108,15 @@ BINARY_FEATURES = {
 }
 
 
-# ============================================================
-# LOAD REQUIRED FILES
-# ============================================================
-
-required_files = {
-    "Model": MODEL_PATH,
-    "Metadata": METADATA_PATH,
-    "Metrics": METRICS_PATH,
-    "SHAP importance": SHAP_PATH,
-    "Dataset": DATASET_PATH,
+# Ordinal categorical numerical features.
+ORDINAL_FEATURES = {
+    "al",
+    "su",
 }
 
-missing_files = [
-    f"{name}: {path}"
-    for name, path in required_files.items()
-    if not path.exists()
-]
-
-if missing_files:
-    st.error("Required project files are missing:")
-    for item in missing_files:
-        st.write(f"- `{item}`")
-    st.stop()
-
 
 # ============================================================
-# LOAD MODEL
-# ============================================================
-
-try:
-
-    bundle = joblib.load(MODEL_PATH)
-
-    MODEL = bundle["model"]
-
-    MODEL_FEATURES = bundle.get(
-        "features",
-        FEATURES,
-    )
-
-    THRESHOLDS = bundle.get(
-        "risk_thresholds",
-        {
-            "moderate": 0.33,
-            "high": 0.66,
-        },
-    )
-
-except Exception as e:
-
-    st.error("Unable to load the trained XGBoost model.")
-    st.exception(e)
-    st.stop()
-
-
-# Make sure the model feature order is used.
-if MODEL_FEATURES:
-    FEATURES = list(MODEL_FEATURES)
-
-
-# ============================================================
-# LOAD METADATA
-# ============================================================
-
-try:
-
-    with open(
-        METADATA_PATH,
-        "r",
-        encoding="utf-8",
-    ) as f:
-        META = json.load(f)
-
-except Exception as e:
-
-    st.warning(
-        "metadata.json could not be fully loaded. "
-        "The application will continue with default settings."
-    )
-
-    META = {}
-
-
-# ============================================================
-# LOAD METRICS
-# ============================================================
-
-try:
-
-    with open(
-        METRICS_PATH,
-        "r",
-        encoding="utf-8",
-    ) as f:
-        METRICS = json.load(f)
-
-except Exception:
-
-    METRICS = {}
-
-
-# ============================================================
-# LOAD SHAP GLOBAL IMPORTANCE
-# ============================================================
-
-try:
-
-    with open(
-        SHAP_PATH,
-        "r",
-        encoding="utf-8",
-    ) as f:
-        SHAP_IMPORTANCE = json.load(f)
-
-except Exception:
-
-    SHAP_IMPORTANCE = []
-
-
-# ============================================================
-# LOAD DATASET
-# ============================================================
-
-try:
-
-    DATASET = pd.read_csv(DATASET_PATH)
-
-except Exception as e:
-
-    st.error("Unable to read ckd_dataset.csv.")
-    st.exception(e)
-    st.stop()
-
-
-# ============================================================
-# SHAP EXPLAINER
-# ============================================================
-
-try:
-
-    # IMPORTANT:
-    # Do NOT use @st.cache_resource with the XGBoost model
-    # because Streamlit may fail while hashing XGBClassifier.
-    EXPLAINER = shap.TreeExplainer(MODEL)
-
-except Exception as e:
-
-    st.error("Unable to initialize the SHAP explainer.")
-    st.exception(e)
-    st.stop()
-
-
-# ============================================================
-# CSS
+# BASIC CSS
 # ============================================================
 
 st.markdown(
@@ -275,7 +131,7 @@ st.markdown(
     .disclaimer {
         padding: 14px;
         border-radius: 10px;
-        background: #f4f6f8;
+        background-color: #f4f6f8;
         border: 1px solid #d7dce2;
         font-size: 0.92rem;
     }
@@ -287,10 +143,269 @@ st.markdown(
 
 
 # ============================================================
+# CHECK REQUIRED FILES
+# ============================================================
+
+required_files = {
+    "Model": MODEL_PATH,
+    "Metadata": METADATA_PATH,
+    "Metrics": METRICS_PATH,
+    "SHAP importance": SHAP_PATH,
+    "Dataset": DATASET_PATH,
+}
+
+
+missing_files = []
+
+for file_name, file_path in required_files.items():
+
+    if not file_path.exists():
+
+        missing_files.append(
+            f"{file_name}: {file_path}"
+        )
+
+
+if missing_files:
+
+    st.error(
+        "Required project files are missing."
+    )
+
+    for item in missing_files:
+
+        st.write(
+            f"- `{item}`"
+        )
+
+    st.stop()
+
+
+# ============================================================
+# LOAD TRAINED MODEL
+# ============================================================
+
+try:
+
+    bundle = joblib.load(
+        MODEL_PATH
+    )
+
+    MODEL = bundle["model"]
+
+    MODEL_FEATURES = bundle.get(
+        "features",
+        FEATURES,
+    )
+
+    RISK_THRESHOLDS = bundle.get(
+        "risk_thresholds",
+        {
+            "moderate": 0.33,
+            "high": 0.66,
+        },
+    )
+
+except Exception as e:
+
+    st.error(
+        "Unable to load the trained CKD model."
+    )
+
+    st.exception(e)
+
+    st.stop()
+
+
+# Use the exact feature order stored with the model.
+if MODEL_FEATURES:
+
+    FEATURES = list(
+        MODEL_FEATURES
+    )
+
+
+# ============================================================
+# LOAD METADATA
+# ============================================================
+
+try:
+
+    with open(
+        METADATA_PATH,
+        "r",
+        encoding="utf-8",
+    ) as f:
+
+        METADATA = json.load(f)
+
+except Exception as e:
+
+    st.warning(
+        "metadata.json could not be loaded. "
+        "The application will continue with limited metadata."
+    )
+
+    METADATA = {}
+
+
+# ============================================================
+# LOAD METRICS
+# ============================================================
+
+try:
+
+    with open(
+        METRICS_PATH,
+        "r",
+        encoding="utf-8",
+    ) as f:
+
+        METRICS = json.load(f)
+
+except Exception:
+
+    METRICS = {}
+
+
+# ============================================================
+# LOAD SHAP IMPORTANCE
+# ============================================================
+
+try:
+
+    with open(
+        SHAP_PATH,
+        "r",
+        encoding="utf-8",
+    ) as f:
+
+        SHAP_IMPORTANCE = json.load(f)
+
+except Exception:
+
+    SHAP_IMPORTANCE = []
+
+
+# ============================================================
+# LOAD DATASET
+# ============================================================
+
+try:
+
+    DATASET = pd.read_csv(
+        DATASET_PATH
+    )
+
+except Exception as e:
+
+    st.error(
+        "Unable to read ckd_dataset.csv."
+    )
+
+    st.exception(e)
+
+    st.stop()
+
+
+# ============================================================
+# CREATE SHAP EXPLAINER
+# ============================================================
+
+try:
+
+    # Do NOT cache this function with the XGBoost model as an
+    # argument. Streamlit may attempt to hash XGBClassifier.
+    EXPLAINER = shap.TreeExplainer(
+        MODEL
+    )
+
+except Exception as e:
+
+    st.error(
+        "Unable to initialize the SHAP explainer."
+    )
+
+    st.exception(e)
+
+    st.stop()
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "last_result" not in st.session_state:
+
+    st.session_state.last_result = None
+
+
+# ============================================================
+# SESSION STATE COMPATIBILITY
+# ============================================================
+
+# Previous versions of the application used:
+#
+#     label
+#     tier
+#
+# The current application uses:
+#
+#     prediction
+#     risk_tier
+#
+# This block prevents old Streamlit sessions from crashing.
+
+old_result = st.session_state.get(
+    "last_result"
+)
+
+
+if old_result is not None:
+
+    if (
+        "prediction" not in old_result
+        and "label" in old_result
+    ):
+
+        old_result["prediction"] = (
+            old_result["label"]
+        )
+
+
+    if (
+        "risk_tier" not in old_result
+        and "tier" in old_result
+    ):
+
+        old_result["risk_tier"] = (
+            old_result["tier"]
+        )
+
+
+    required_result_keys = {
+        "prediction",
+        "risk_tier",
+        "probability",
+        "explanation",
+        "input",
+    }
+
+
+    if not required_result_keys.issubset(
+        old_result.keys()
+    ):
+
+        st.session_state.last_result = None
+
+
+# ============================================================
 # HEADER
 # ============================================================
 
-st.title("🩺 CKD-AI")
+st.title(
+    "🩺 CKD-AI"
+)
 
 st.subheader(
     "Explainable AI-Based Early Detection and Risk Assessment "
@@ -310,7 +425,7 @@ st.markdown(
     """
     <div class="disclaimer">
 
-    <b>Research / screening prototype</b><br><br>
+    <b>Research / Screening Prototype</b><br><br>
 
     This application is intended for research and screening
     demonstration only. It is not a medical diagnostic device
@@ -330,7 +445,7 @@ st.markdown(
 # TABS
 # ============================================================
 
-tab_assessment, tab_explain, tab_performance, tab_research = st.tabs(
+tab_assessment, tab_explainability, tab_performance, tab_research = st.tabs(
     [
         "🧪 Patient Assessment",
         "🔎 Explainability",
@@ -346,32 +461,31 @@ tab_assessment, tab_explain, tab_performance, tab_research = st.tabs(
 
 with tab_assessment:
 
-    st.markdown("### Patient Clinical Assessment")
+    st.markdown(
+        "## 🧪 Patient Clinical Assessment"
+    )
 
     st.info(
         "Enter all 24 clinical attributes. "
-        "The application intentionally starts with blank fields "
-        "so that the prediction is based only on the values you provide."
+        "The fields are intentionally blank when the application "
+        "starts so that the model does not make a prediction from "
+        "automatically inserted median values."
     )
 
 
     # ========================================================
-    # SESSION STATE
+    # SECTION 1 — BASIC MEASUREMENTS
     # ========================================================
 
-    if "last_result" not in st.session_state:
-        st.session_state.last_result = None
+    st.markdown(
+        "### 1. Basic Measurements"
+    )
 
 
-    # ========================================================
-    # BASIC MEASUREMENTS
-    # ========================================================
+    col1, col2, col3 = st.columns(3)
 
-    st.markdown("#### 1. Basic Measurements")
 
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
+    with col1:
 
         age = st.number_input(
             "Age",
@@ -382,7 +496,8 @@ with tab_assessment:
             placeholder="Enter age",
         )
 
-    with c2:
+
+    with col2:
 
         bp = st.number_input(
             "Blood Pressure",
@@ -393,7 +508,8 @@ with tab_assessment:
             placeholder="Enter blood pressure",
         )
 
-    with c3:
+
+    with col3:
 
         sg = st.number_input(
             "Specific Gravity",
@@ -402,42 +518,51 @@ with tab_assessment:
             value=None,
             step=0.001,
             format="%.3f",
-            placeholder="e.g. 1.020",
+            placeholder="Example: 1.020",
         )
 
 
     # ========================================================
-    # URINE PARAMETERS
+    # SECTION 2 — URINE PARAMETERS
     # ========================================================
 
-    st.markdown("#### 2. Urine Parameters")
+    st.markdown(
+        "### 2. Urine Parameters"
+    )
 
-    c1, c2, c3 = st.columns(3)
 
-    with c1:
+    col1, col2, col3 = st.columns(3)
+
+
+    with col1:
 
         al = st.selectbox(
             "Albumin",
             options=[0, 1, 2, 3, 4, 5],
             index=None,
-            placeholder="Select Albumin value",
+            placeholder="Select Albumin",
             help=(
-                "Ordinal dataset encoding. "
-                "Select the value corresponding to the patient's record."
+                "Ordinal numerical encoding used in the "
+                "supplied research dataset."
             ),
         )
 
-    with c2:
+
+    with col2:
 
         su = st.selectbox(
             "Sugar",
             options=[0, 1, 2, 3, 4, 5],
             index=None,
-            placeholder="Select Sugar value",
-            help="Ordinal dataset encoding.",
+            placeholder="Select Sugar",
+            help=(
+                "Ordinal numerical encoding used in the "
+                "supplied research dataset."
+            ),
         )
 
-    with c3:
+
+    with col3:
 
         rbc = st.selectbox(
             "Red Blood Cells",
@@ -447,9 +572,10 @@ with tab_assessment:
         )
 
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
+
+    with col1:
 
         pc = st.selectbox(
             "Pus Cell",
@@ -458,7 +584,8 @@ with tab_assessment:
             placeholder="Select 0 or 1",
         )
 
-    with c2:
+
+    with col2:
 
         pcc = st.selectbox(
             "Pus Cell Clumps",
@@ -467,7 +594,8 @@ with tab_assessment:
             placeholder="Select 0 or 1",
         )
 
-    with c3:
+
+    with col3:
 
         ba = st.selectbox(
             "Bacteria",
@@ -478,14 +606,18 @@ with tab_assessment:
 
 
     # ========================================================
-    # BLOOD PARAMETERS
+    # SECTION 3 — BLOOD PARAMETERS
     # ========================================================
 
-    st.markdown("#### 3. Blood Parameters")
+    st.markdown(
+        "### 3. Blood Parameters"
+    )
 
-    c1, c2, c3 = st.columns(3)
 
-    with c1:
+    col1, col2, col3 = st.columns(3)
+
+
+    with col1:
 
         bgr = st.number_input(
             "Blood Glucose Random",
@@ -496,7 +628,8 @@ with tab_assessment:
             placeholder="Enter value",
         )
 
-    with c2:
+
+    with col2:
 
         bu = st.number_input(
             "Blood Urea",
@@ -507,7 +640,8 @@ with tab_assessment:
             placeholder="Enter value",
         )
 
-    with c3:
+
+    with col3:
 
         sc = st.number_input(
             "Serum Creatinine",
@@ -519,9 +653,10 @@ with tab_assessment:
         )
 
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
+
+    with col1:
 
         sod = st.number_input(
             "Sodium",
@@ -532,7 +667,8 @@ with tab_assessment:
             placeholder="Enter value",
         )
 
-    with c2:
+
+    with col2:
 
         pot = st.number_input(
             "Potassium",
@@ -543,7 +679,8 @@ with tab_assessment:
             placeholder="Enter value",
         )
 
-    with c3:
+
+    with col3:
 
         hemo = st.number_input(
             "Haemoglobin",
@@ -555,9 +692,10 @@ with tab_assessment:
         )
 
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
+
+    with col1:
 
         pcv = st.number_input(
             "Packed Cell Volume",
@@ -568,7 +706,8 @@ with tab_assessment:
             placeholder="Enter value",
         )
 
-    with c2:
+
+    with col2:
 
         wc = st.number_input(
             "White Blood Cell Count",
@@ -579,7 +718,8 @@ with tab_assessment:
             placeholder="Enter value",
         )
 
-    with c3:
+
+    with col3:
 
         rc = st.number_input(
             "Red Blood Cell Count",
@@ -592,14 +732,18 @@ with tab_assessment:
 
 
     # ========================================================
-    # MEDICAL CONDITIONS
+    # SECTION 4 — MEDICAL CONDITIONS
     # ========================================================
 
-    st.markdown("#### 4. Medical Condition Indicators")
+    st.markdown(
+        "### 4. Medical Condition Indicators"
+    )
 
-    c1, c2, c3 = st.columns(3)
 
-    with c1:
+    col1, col2, col3 = st.columns(3)
+
+
+    with col1:
 
         htn = st.selectbox(
             "Hypertension",
@@ -608,7 +752,8 @@ with tab_assessment:
             placeholder="Select 0 or 1",
         )
 
-    with c2:
+
+    with col2:
 
         dm = st.selectbox(
             "Diabetes Mellitus",
@@ -617,7 +762,8 @@ with tab_assessment:
             placeholder="Select 0 or 1",
         )
 
-    with c3:
+
+    with col3:
 
         cad = st.selectbox(
             "Coronary Artery Disease",
@@ -627,9 +773,10 @@ with tab_assessment:
         )
 
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
+
+    with col1:
 
         appet = st.selectbox(
             "Appetite",
@@ -638,7 +785,8 @@ with tab_assessment:
             placeholder="Select 0 or 1",
         )
 
-    with c2:
+
+    with col2:
 
         pe = st.selectbox(
             "Pedal Edema",
@@ -647,7 +795,8 @@ with tab_assessment:
             placeholder="Select 0 or 1",
         )
 
-    with c3:
+
+    with col3:
 
         ane = st.selectbox(
             "Anaemia",
@@ -658,10 +807,11 @@ with tab_assessment:
 
 
     # ========================================================
-    # COLLECT INPUTS
+    # COLLECT ALL INPUTS
     # ========================================================
 
-    values = {
+    patient_values = {
+
         "age": age,
         "bp": bp,
         "sg": sg,
@@ -693,33 +843,46 @@ with tab_assessment:
     # VALIDATION
     # ========================================================
 
-    missing_fields = [
-        DISPLAY.get(key, key)
-        for key, value in values.items()
-        if value is None
-    ]
+    missing_fields = []
+
+    for feature in FEATURES:
+
+        if patient_values.get(feature) is None:
+
+            missing_fields.append(
+                DISPLAY_NAMES.get(
+                    feature,
+                    feature,
+                )
+            )
 
 
     if missing_fields:
 
         st.warning(
-            f"Please enter/select all 24 clinical attributes. "
-            f"{len(missing_fields)} field(s) are still missing."
+            f"{len(missing_fields)} clinical field(s) "
+            "still need to be entered."
         )
 
-        with st.expander("Missing fields"):
+        with st.expander(
+            "View missing fields"
+        ):
 
             for field in missing_fields:
-                st.write(f"• {field}")
+
+                st.write(
+                    f"• {field}"
+                )
 
 
     # ========================================================
-    # PREDICTION BUTTON
+    # ANALYZE BUTTON
     # ========================================================
 
     st.divider()
 
-    analyze = st.button(
+
+    analyze_button = st.button(
         "🔍 Analyze CKD Risk",
         type="primary",
         use_container_width=True,
@@ -728,176 +891,235 @@ with tab_assessment:
 
 
     # ========================================================
-    # PREDICTION
+    # RUN MODEL
     # ========================================================
 
-    if analyze:
+    if analyze_button:
 
         try:
 
-            # -----------------------------------------------
-            # Create model input
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # Prepare model input
+            # ------------------------------------------------
 
-            input_values = []
+            model_values = []
+
 
             for feature in FEATURES:
 
-                value = values[feature]
+                value = patient_values[
+                    feature
+                ]
+
 
                 if feature in BINARY_FEATURES:
+
                     value = int(value)
 
-                elif feature in {"al", "su"}:
+
+                elif feature in ORDINAL_FEATURES:
+
                     value = int(value)
+
 
                 else:
+
                     value = float(value)
 
-                input_values.append(value)
+
+                model_values.append(
+                    value
+                )
 
 
-            row = pd.DataFrame(
-                [input_values],
+            input_df = pd.DataFrame(
+                [model_values],
                 columns=FEATURES,
             )
 
 
-            # -----------------------------------------------
-            # Dataset range warning
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # DATASET RANGE CHECK
+            # ------------------------------------------------
 
-            outside_range = []
-
-
-            dataset_ranges = META.get(
+            dataset_ranges = METADATA.get(
                 "dataset_ranges",
                 {},
             )
 
 
+            outside_range = []
+
+
             for feature in FEATURES:
 
                 if feature not in dataset_ranges:
+
                     continue
+
 
                 try:
 
-                    lower = float(
-                        dataset_ranges[feature]["min"]
+                    minimum = float(
+                        dataset_ranges[
+                            feature
+                        ]["min"]
                     )
 
-                    upper = float(
-                        dataset_ranges[feature]["max"]
+                    maximum = float(
+                        dataset_ranges[
+                            feature
+                        ]["max"]
                     )
 
-                    value = float(
-                        row.iloc[0][feature]
+                    current_value = float(
+                        input_df.iloc[0][
+                            feature
+                        ]
                     )
 
-                    if value < lower or value > upper:
+
+                    if (
+                        current_value < minimum
+                        or current_value > maximum
+                    ):
 
                         outside_range.append(
-                            f"{DISPLAY.get(feature, feature)} "
-                            f"= {value:g} "
-                            f"(dataset range: "
-                            f"{lower:g}–{upper:g})"
+                            {
+                                "feature":
+                                    DISPLAY_NAMES.get(
+                                        feature,
+                                        feature,
+                                    ),
+
+                                "value":
+                                    current_value,
+
+                                "minimum":
+                                    minimum,
+
+                                "maximum":
+                                    maximum,
+                            }
                         )
 
                 except Exception:
-                    pass
+
+                    continue
 
 
             if outside_range:
 
                 st.warning(
-                    "Some values are outside the empirical "
-                    "range of the supplied research dataset. "
-                    "The model will receive the values without "
-                    "clipping them."
+                    "Some entered values are outside the "
+                    "empirical range of the supplied training dataset. "
+                    "The model will receive these values without clipping."
                 )
 
+
                 with st.expander(
-                    "Values outside the training-data range"
+                    "Values outside training-data range"
                 ):
 
                     for item in outside_range:
-                        st.write(f"• {item}")
+
+                        st.write(
+                            f"• {item['feature']}: "
+                            f"{item['value']} "
+                            f"(dataset range "
+                            f"{item['minimum']}–"
+                            f"{item['maximum']})"
+                        )
 
 
-            # -----------------------------------------------
-            # Model probability
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # MODEL PREDICTION
+            # ------------------------------------------------
 
-            probability = MODEL.predict_proba(row)
-
-            p = float(
-                probability[0][1]
+            probabilities = MODEL.predict_proba(
+                input_df
             )
 
 
-            # -----------------------------------------------
-            # Binary prediction
-            # -----------------------------------------------
+            probability = float(
+                probabilities[0][1]
+            )
+
+
+            # ------------------------------------------------
+            # CLASSIFICATION
+            # ------------------------------------------------
 
             prediction = (
                 "CKD Positive"
-                if p >= 0.50
+                if probability >= 0.50
                 else "Not CKD"
             )
 
 
-            # -----------------------------------------------
-            # Research risk tier
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # RISK THRESHOLDS
+            # ------------------------------------------------
 
             moderate_threshold = float(
-                THRESHOLDS.get(
+                RISK_THRESHOLDS.get(
                     "moderate",
                     0.33,
                 )
             )
 
+
             high_threshold = float(
-                THRESHOLDS.get(
+                RISK_THRESHOLDS.get(
                     "high",
                     0.66,
                 )
             )
 
 
-            if p < moderate_threshold:
+            if probability < moderate_threshold:
 
                 risk_tier = "Low"
 
-            elif p < high_threshold:
+
+            elif probability < high_threshold:
 
                 risk_tier = "Moderate"
+
 
             else:
 
                 risk_tier = "High"
 
 
-            # -----------------------------------------------
-            # SHAP
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # SHAP EXPLANATION
+            # ------------------------------------------------
 
-            shap_output = EXPLAINER.shap_values(row)
+            shap_output = EXPLAINER.shap_values(
+                input_df
+            )
 
+
+            # Handle SHAP binary classification
+            # outputs across versions.
 
             if isinstance(
                 shap_output,
                 list,
             ):
 
-                if len(shap_output) > 1:
+                if len(shap_output) >= 2:
 
-                    shap_values = shap_output[1]
+                    shap_values = (
+                        shap_output[1]
+                    )
 
                 else:
 
-                    shap_values = shap_output[0]
+                    shap_values = (
+                        shap_output[0]
+                    )
 
             else:
 
@@ -908,50 +1130,53 @@ with tab_assessment:
                 shap_values
             )
 
+
             shap_values = np.squeeze(
                 shap_values
             )
 
 
-            # -----------------------------------------------
-            # Handle SHAP dimensions
-            # -----------------------------------------------
-
             if shap_values.ndim > 1:
 
-                shap_values = shap_values.reshape(
-                    -1
+                shap_values = (
+                    shap_values.reshape(-1)
                 )
 
 
-            # XGBoost/SHAP versions can sometimes
-            # return an extra output value.
-            if len(shap_values) > len(FEATURES):
+            # Some SHAP versions may return
+            # an additional value.
 
-                shap_values = shap_values[
-                    :len(FEATURES)
-                ]
+            if len(shap_values) > len(
+                FEATURES
+            ):
+
+                shap_values = (
+                    shap_values[
+                        :len(FEATURES)
+                    ]
+                )
 
 
-            # Safety fallback
-            if len(shap_values) != len(FEATURES):
+            if len(shap_values) != len(
+                FEATURES
+            ):
 
                 raise ValueError(
-                    "SHAP output does not match the "
-                    "24 model features. "
+                    "SHAP output does not match "
+                    "the model feature count. "
                     f"Expected {len(FEATURES)}, "
                     f"received {len(shap_values)}."
                 )
 
 
-            # -----------------------------------------------
-            # Explanation dataframe
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # EXPLANATION TABLE
+            # ------------------------------------------------
 
             explanation = pd.DataFrame(
                 {
                     "Feature": [
-                        DISPLAY.get(
+                        DISPLAY_NAMES.get(
                             feature,
                             feature,
                         )
@@ -961,7 +1186,9 @@ with tab_assessment:
                     "Feature Code": FEATURES,
 
                     "Patient Value": [
-                        row.iloc[0][feature]
+                        input_df.iloc[0][
+                            feature
+                        ]
                         for feature in FEATURES
                     ],
 
@@ -974,56 +1201,119 @@ with tab_assessment:
             )
 
 
-            explanation = explanation.sort_values(
-                "Absolute SHAP",
-                ascending=False,
-            ).reset_index(
-                drop=True
+            explanation = (
+                explanation
+                .sort_values(
+                    "Absolute SHAP",
+                    ascending=False,
+                )
+                .reset_index(
+                    drop=True
+                )
             )
 
 
-            explanation["Direction"] = np.where(
-                explanation["SHAP Value"] >= 0,
-                "Higher CKD model output",
-                "Lower CKD model output",
+            explanation[
+                "Direction"
+            ] = np.where(
+                explanation[
+                    "SHAP Value"
+                ] >= 0,
+
+                "Increases CKD model output",
+
+                "Decreases CKD model output",
             )
 
 
-            # -----------------------------------------------
-            # Save result
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # STORE RESULT
+            # ------------------------------------------------
 
             st.session_state.last_result = {
 
-                "input": row,
+                "input":
+                    input_df,
 
-                "probability": p,
+                "probability":
+                    probability,
 
-                "prediction": prediction,
+                "prediction":
+                    prediction,
 
-                "risk_tier": risk_tier,
+                "risk_tier":
+                    risk_tier,
 
-                "explanation": explanation,
+                "explanation":
+                    explanation,
             }
 
 
         except Exception as e:
 
             st.error(
-                "An error occurred during prediction."
+                "An error occurred while analyzing "
+                "the patient data."
             )
 
             st.exception(e)
 
 
     # ========================================================
-    # DISPLAY RESULT
+    # DISPLAY LAST RESULT
     # ========================================================
 
     result = st.session_state.get(
         "last_result"
     )
 
+
+    # Compatibility with previous versions.
+    if result is not None:
+
+        if (
+            "prediction" not in result
+            and "label" in result
+        ):
+
+            result["prediction"] = (
+                result["label"]
+            )
+
+
+        if (
+            "risk_tier" not in result
+            and "tier" in result
+        ):
+
+            result["risk_tier"] = (
+                result["tier"]
+            )
+
+
+    if result is not None:
+
+        required_keys = {
+            "input",
+            "probability",
+            "prediction",
+            "risk_tier",
+            "explanation",
+        }
+
+
+        if not required_keys.issubset(
+            result.keys()
+        ):
+
+            st.session_state.last_result = None
+
+            result = None
+
+
+    # ========================================================
+    # RESULT DISPLAY
+    # ========================================================
 
     if result is not None:
 
@@ -1034,129 +1324,151 @@ with tab_assessment:
         )
 
 
-        # -----------------------------------------------
-        # Main metrics
-        # -----------------------------------------------
+        # ----------------------------------------------------
+        # RESULT METRICS
+        # ----------------------------------------------------
 
-        c1, c2, c3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
 
 
-        with c1:
+        with col1:
 
             st.metric(
                 "Prediction",
-                result["prediction"],
+                result[
+                    "prediction"
+                ],
             )
 
 
-        with c2:
+        with col2:
 
             st.metric(
                 "CKD Probability",
-                f"{result['probability'] * 100:.2f}%",
+                (
+                    f"{result['probability'] * 100:.2f}%"
+                ),
             )
 
 
-        with c3:
+        with col3:
 
             st.metric(
                 "Research Risk Tier",
-                result["risk_tier"],
+                result[
+                    "risk_tier"
+                ],
             )
 
 
-        # -----------------------------------------------
-        # Probability bar
-        # -----------------------------------------------
+        # ----------------------------------------------------
+        # PROBABILITY BAR
+        # ----------------------------------------------------
 
         st.progress(
-            result["probability"],
+            min(
+                max(
+                    result[
+                        "probability"
+                    ],
+                    0.0,
+                ),
+                1.0,
+            ),
             text=(
-                f"Predicted CKD probability: "
+                "Predicted CKD probability: "
                 f"{result['probability'] * 100:.2f}%"
             ),
         )
 
 
-        # -----------------------------------------------
-        # Risk explanation
-        # -----------------------------------------------
+        # ----------------------------------------------------
+        # RISK MESSAGE
+        # ----------------------------------------------------
 
         if result["risk_tier"] == "Low":
 
             st.info(
-                "The model assigns this input to the "
-                "Low research risk tier."
+                "The model assigns this patient input "
+                "to the Low research risk tier."
             )
+
 
         elif result["risk_tier"] == "Moderate":
 
             st.warning(
-                "The model assigns this input to the "
-                "Moderate research risk tier."
+                "The model assigns this patient input "
+                "to the Moderate research risk tier."
             )
+
 
         else:
 
             st.error(
-                "The model assigns this input to the "
-                "High research risk tier."
+                "The model assigns this patient input "
+                "to the High research risk tier."
             )
 
 
-        # -----------------------------------------------
-        # SHAP explanation
-        # -----------------------------------------------
+        # ----------------------------------------------------
+        # TOP FEATURES
+        # ----------------------------------------------------
 
         st.markdown(
             "### 🔎 Top Contributing Factors"
         )
 
+
         st.caption(
-            "SHAP values explain the contribution of each "
-            "feature to this individual model prediction. "
-            "They do not represent clinical causation."
+            "SHAP values describe how individual features "
+            "contribute to this model prediction. They do "
+            "not represent clinical causation."
         )
 
 
         top_features = (
-            result["explanation"]
+            result[
+                "explanation"
+            ]
             .head(8)
             .copy()
         )
 
 
-        display_top = top_features[
-            [
-                "Feature",
-                "Patient Value",
-                "SHAP Value",
-                "Direction",
-            ]
-        ]
-
-
         st.dataframe(
-            display_top,
+            top_features[
+                [
+                    "Feature",
+                    "Patient Value",
+                    "SHAP Value",
+                    "Direction",
+                ]
+            ],
             use_container_width=True,
             hide_index=True,
         )
 
 
-        # -----------------------------------------------
-        # Download
-        # -----------------------------------------------
+        # ----------------------------------------------------
+        # DOWNLOAD RESULT
+        # ----------------------------------------------------
 
-        downloadable = {
+        downloadable_result = {
 
             "prediction":
-                result["prediction"],
+                result[
+                    "prediction"
+                ],
 
             "ckd_probability":
-                result["probability"],
+                result[
+                    "probability"
+                ],
 
             "risk_tier":
-                result["risk_tier"],
+                result[
+                    "risk_tier"
+                ],
 
             "model":
                 "XGBoost",
@@ -1167,7 +1479,10 @@ with tab_assessment:
             "patient_input":
                 {
                     feature:
-                    result["input"].iloc[0][feature]
+                    result[
+                        "input"
+                    ].iloc[0][feature]
+
                     for feature in FEATURES
                 },
 
@@ -1193,11 +1508,13 @@ with tab_assessment:
         st.download_button(
             "⬇️ Download Assessment Result",
             data=json.dumps(
-                downloadable,
+                downloadable_result,
                 indent=2,
                 default=str,
             ),
-            file_name="ckd_assessment_result.json",
+            file_name=(
+                "ckd_assessment_result.json"
+            ),
             mime="application/json",
         )
 
@@ -1206,7 +1523,7 @@ with tab_assessment:
 # TAB 2 — EXPLAINABILITY
 # ============================================================
 
-with tab_explain:
+with tab_explainability:
 
     st.markdown(
         "## 🔎 Explainable AI"
@@ -1214,8 +1531,8 @@ with tab_explain:
 
 
     st.write(
-        "The application uses SHAP TreeExplainer to explain "
-        "the XGBoost model prediction at feature level."
+        "SHAP TreeExplainer is used to explain the "
+        "XGBoost model at both global and patient levels."
     )
 
 
@@ -1228,21 +1545,22 @@ with tab_explain:
     )
 
 
-    if isinstance(
-        SHAP_IMPORTANCE,
-        list,
-    ) and len(SHAP_IMPORTANCE) > 0:
+    try:
 
-        try:
+        if isinstance(
+            SHAP_IMPORTANCE,
+            list,
+        ) and len(
+            SHAP_IMPORTANCE
+        ) > 0:
 
             importance_df = pd.DataFrame(
                 SHAP_IMPORTANCE
             )
 
 
-            # Handle common artifact naming.
             feature_column = None
-            value_column = None
+            importance_column = None
 
 
             for candidate in [
@@ -1251,7 +1569,9 @@ with tab_explain:
                 "feature_name",
             ]:
 
-                if candidate in importance_df.columns:
+                if candidate in (
+                    importance_df.columns
+                ):
 
                     feature_column = candidate
                     break
@@ -1264,23 +1584,27 @@ with tab_explain:
                 "mean_abs",
             ]:
 
-                if candidate in importance_df.columns:
+                if candidate in (
+                    importance_df.columns
+                ):
 
-                    value_column = candidate
+                    importance_column = candidate
                     break
 
 
             if (
-                feature_column is not None
-                and value_column is not None
+                feature_column
+                and importance_column
             ):
 
-                importance_df["Display Feature"] = (
+                importance_df[
+                    "Display Feature"
+                ] = (
                     importance_df[
                         feature_column
                     ].map(
                         lambda x:
-                        DISPLAY.get(
+                        DISPLAY_NAMES.get(
                             x,
                             x,
                         )
@@ -1292,7 +1616,7 @@ with tab_explain:
                     "Importance"
                 ] = pd.to_numeric(
                     importance_df[
-                        value_column
+                        importance_column
                     ],
                     errors="coerce",
                 )
@@ -1307,7 +1631,7 @@ with tab_explain:
                 )
 
 
-                chart = (
+                chart_data = (
                     importance_df
                     .head(12)
                     .set_index(
@@ -1319,7 +1643,7 @@ with tab_explain:
 
 
                 st.bar_chart(
-                    chart
+                    chart_data
                 )
 
 
@@ -1334,6 +1658,7 @@ with tab_explain:
                         columns={
                             "Display Feature":
                                 "Feature",
+
                             feature_column:
                                 "Feature Code",
                         }
@@ -1346,27 +1671,29 @@ with tab_explain:
             else:
 
                 st.info(
-                    "The global SHAP artifact has an "
-                    "unexpected structure."
+                    "The global SHAP artifact does not "
+                    "contain the expected feature/importance columns."
                 )
 
-        except Exception as e:
 
-            st.warning(
-                "Unable to display global SHAP importance."
+        else:
+
+            st.info(
+                "Global SHAP importance is not available."
             )
 
-            st.exception(e)
 
-    else:
+    except Exception as e:
 
-        st.info(
-            "Global SHAP importance is not available."
+        st.warning(
+            "Unable to display global SHAP importance."
         )
+
+        st.exception(e)
 
 
     # ========================================================
-    # PATIENT SHAP
+    # PATIENT-LEVEL SHAP
     # ========================================================
 
     result = st.session_state.get(
@@ -1382,7 +1709,9 @@ with tab_explain:
 
 
         patient_shap = (
-            result["explanation"]
+            result[
+                "explanation"
+            ]
             .head(10)
             .copy()
             .sort_values(
@@ -1391,7 +1720,7 @@ with tab_explain:
         )
 
 
-        chart = (
+        chart_data = (
             patient_shap
             .set_index(
                 "Feature"
@@ -1402,7 +1731,7 @@ with tab_explain:
 
 
         st.bar_chart(
-            chart
+            chart_data
         )
 
 
@@ -1426,13 +1755,13 @@ with tab_performance:
 
 
     st.caption(
-        "Performance values correspond to the trained model "
+        "These values correspond to the trained model "
         "artifact used by this application."
     )
 
 
     # ========================================================
-    # METRICS
+    # PERFORMANCE METRICS
     # ========================================================
 
     accuracy = METRICS.get(
@@ -1456,12 +1785,12 @@ with tab_performance:
     )
 
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
 
     if accuracy is not None:
 
-        c1.metric(
+        col1.metric(
             "Accuracy",
             f"{float(accuracy) * 100:.2f}%",
         )
@@ -1469,7 +1798,7 @@ with tab_performance:
 
     if precision is not None:
 
-        c2.metric(
+        col2.metric(
             "Precision",
             f"{float(precision) * 100:.2f}%",
         )
@@ -1477,7 +1806,7 @@ with tab_performance:
 
     if recall is not None:
 
-        c3.metric(
+        col3.metric(
             "Recall",
             f"{float(recall) * 100:.2f}%",
         )
@@ -1485,7 +1814,7 @@ with tab_performance:
 
     if f1 is not None:
 
-        c4.metric(
+        col4.metric(
             "F1 Score",
             f"{float(f1) * 100:.2f}%",
         )
@@ -1493,7 +1822,7 @@ with tab_performance:
 
     if auc is not None:
 
-        c5.metric(
+        col5.metric(
             "ROC-AUC",
             f"{float(auc):.3f}",
         )
@@ -1508,22 +1837,22 @@ with tab_performance:
     )
 
 
-    cm = METRICS.get(
+    confusion_matrix = METRICS.get(
         "confusion_matrix"
     )
 
 
-    if cm is not None:
+    if confusion_matrix is not None:
 
         try:
 
-            cm_array = np.asarray(
-                cm
+            cm = np.asarray(
+                confusion_matrix
             )
 
 
             cm_df = pd.DataFrame(
-                cm_array,
+                cm,
                 index=[
                     "Actual Not CKD",
                     "Actual CKD",
@@ -1540,9 +1869,13 @@ with tab_performance:
                 use_container_width=True,
             )
 
+
         except Exception:
 
-            st.write(cm)
+            st.write(
+                confusion_matrix
+            )
+
 
     else:
 
@@ -1552,7 +1885,7 @@ with tab_performance:
 
 
     # ========================================================
-    # DATASET
+    # DATASET INFORMATION
     # ========================================================
 
     st.markdown(
@@ -1560,16 +1893,16 @@ with tab_performance:
     )
 
 
-    d1, d2, d3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
 
-    d1.metric(
+    col1.metric(
         "Total Records",
         len(DATASET),
     )
 
 
-    d2.metric(
+    col2.metric(
         "Input Features",
         len(FEATURES),
     )
@@ -1577,16 +1910,14 @@ with tab_performance:
 
     if "class" in DATASET.columns:
 
-        class_counts = (
+        class_count = (
             DATASET["class"]
-            .value_counts()
-            .to_dict()
+            .nunique()
         )
 
-
-        d3.metric(
+        col3.metric(
             "Class Categories",
-            len(class_counts),
+            class_count,
         )
 
 
@@ -1610,16 +1941,15 @@ with tab_research:
         Machine Learning**
 
 
-        ### Framework
+        ### Proposed Framework
 
-        **Clinical Inputs → Preprocessing → XGBoost →
+        **Clinical Data → Preprocessing → Machine Learning →
         CKD Probability → Risk Assessment → SHAP Explanation**
 
 
         ### Input
 
-        The model uses **24 clinical attributes** from the
-        research dataset.
+        The deployed model uses **24 clinical attributes**.
 
 
         ### Machine Learning Model
@@ -1630,32 +1960,32 @@ with tab_research:
         ### Explainability
 
         **SHAP TreeExplainer** is used to identify the
-        contribution of individual features to the prediction.
+        contribution of individual features to the model output.
 
 
-        ### Risk Assessment
+        ### Research Risk Tiers
 
-        The research prototype uses three probability tiers:
+        **Low:** probability < 0.33
 
-        - **Low:** probability < 0.33
-        - **Moderate:** 0.33 ≤ probability < 0.66
-        - **High:** probability ≥ 0.66
+        **Moderate:** 0.33 ≤ probability < 0.66
+
+        **High:** probability ≥ 0.66
 
 
-        ### Important
+        ### Important Note
 
-        These risk thresholds are research-design thresholds
-        and are not clinically calibrated.
+        These probability thresholds are research-design
+        thresholds and are not clinically calibrated.
         """
     )
 
 
     # ========================================================
-    # MODEL INFORMATION
+    # MODEL DETAILS
     # ========================================================
 
     st.markdown(
-        "### Deployment Model"
+        "### Deployment Information"
     )
 
 
@@ -1663,23 +1993,25 @@ with tab_research:
         "Prediction model: **XGBoost**"
     )
 
+
     st.write(
         "Explainability method: **SHAP TreeExplainer**"
     )
 
+
     st.write(
-        f"Number of input features: **{len(FEATURES)}**"
+        f"Input features: **{len(FEATURES)}**"
     )
 
 
     # ========================================================
-    # SAFETY NOTE
+    # SAFETY
     # ========================================================
 
     st.warning(
-        "This application is a research prototype. "
-        "A positive prediction does not establish a clinical "
-        "diagnosis of chronic kidney disease."
+        "A CKD-positive model prediction does not establish "
+        "a clinical diagnosis. The application is intended "
+        "for research and screening demonstration."
     )
 
 
