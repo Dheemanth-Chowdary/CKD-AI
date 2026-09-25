@@ -244,18 +244,17 @@ def get_default(col):
 # SHAP EXPLAINER
 # ============================================================
 
-@st.cache_resource
-def get_explainer(model):
-    return shap.TreeExplainer(model)
-
+# ============================================================
+# SHAP EXPLAINER
+# ============================================================
 
 try:
-    EXPLAINER = get_explainer(MODEL)
+    EXPLAINER = shap.TreeExplainer(MODEL)
+
 except Exception as e:
     st.error("Unable to initialize the SHAP explainer.")
     st.exception(e)
     st.stop()
-
 
 # ============================================================
 # CUSTOM CSS
