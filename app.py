@@ -1128,6 +1128,9 @@ with tab_assess:
             # Add a minimal record only after a successful prediction.
             record_prediction_history(st.session_state.last_result)
 
+            # Refresh the app so the history tab immediately reflects this entry.
+            st.rerun()
+
             result = st.session_state.last_result
 
         except Exception as e:
