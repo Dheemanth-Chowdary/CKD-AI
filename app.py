@@ -1,6 +1,7 @@
 # CKD-AI UI v2.0 — verified Streamlit build
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import joblib
@@ -385,6 +386,26 @@ except Exception as e:
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
+# Session-only history: one latest assessment per Low / Moderate / High tier.
+# Only timestamp, prediction, probability and tier are stored (no clinical inputs).
+if "prediction_history" not in st.session_state:
+    st.session_state.prediction_history = []
+
+def record_prediction_history(result):
+    """Keep one latest, minimal history record for each risk tier."""
+    tier = result["risk_tier"]
+    history = [
+        entry for entry in st.session_state.prediction_history
+        if entry["risk_tier"] != tier
+    ]
+    history.insert(0, {
+        "timestamp": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "risk_tier": tier,
+        "prediction": result["prediction"],
+        "probability": float(result["probability"]),
+    })
+    st.session_state.prediction_history = history[:3]
+
 # Compatibility with earlier app versions.
 old = st.session_state.get("last_result")
 
@@ -555,9 +576,10 @@ if result is None:
 # NAVIGATION
 # ============================================================
 
-tab_assess, tab_explain, tab_performance, tab_research = st.tabs(
+tab_assess, tab_history, tab_explain, tab_performance, tab_research = st.tabs(
     [
         "🧪  Patient Assessment",
+        "🕘  Prediction History",
         "🔎  Explainability",
         "📊  Model Performance",
         "📚  Research Details",
@@ -566,6 +588,91 @@ tab_assess, tab_explain, tab_performance, tab_research = st.tabs(
 
 
 # ============================================================
+# ============================================================
+# PREDICTION HISTORY
+# ============================================================
+
+with tab_history:
+
+    st.markdown(
+        '<div class="section-title">Prediction History</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="section-subtitle">'
+        'Shows the latest assessment for each available risk tier. '
+        'History is kept only for this active browser session.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    history = st.session_state.get("prediction_history", [])
+    tier_order = {"High": 0, "Moderate": 1, "Low": 2}
+    history = sorted(history, key=lambda x: tier_order.get(x["risk_tier"], 99))
+
+    if history:
+        cols = st.columns(3)
+        styles = {
+            "High": ("status-high", "🔴"),
+            "Moderate": ("status-moderate", "🟠"),
+            "Low": ("status-low", "🟢"),
+        }
+        by_tier = {entry["risk_tier"]: entry for entry in history}
+
+        for col, tier in zip(cols, ["High", "Moderate", "Low"]):
+            with col:
+                entry = by_tier.get(tier)
+                if entry:
+                    css_class, marker = styles[tier]
+                    st.markdown(
+                        f'<div class="{css_class}">{marker} &nbsp;{tier} Risk</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.metric("CKD Probability", f'{entry["probability"] * 100:.2f}%')
+                    st.caption(entry["prediction"])
+                    st.caption(f'Assessed: {entry["timestamp"]}')
+                else:
+                    st.info(f"No {tier.lower()}-risk assessment recorded yet.")
+
+        st.markdown("#### Recent assessments")
+        history_df = pd.DataFrame([
+            {
+                "Date / Time": item["timestamp"],
+                "Risk Tier": item["risk_tier"],
+                "Prediction": item["prediction"],
+                "CKD Probability": f'{item["probability"] * 100:.2f}%',
+            }
+            for item in history
+        ])
+        st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+        csv_data = history_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download History (CSV)",
+            data=csv_data,
+            file_name="ckd_prediction_history.csv",
+            mime="text/csv",
+        )
+
+        if st.button("Clear Prediction History", type="secondary"):
+            st.session_state.prediction_history = []
+            st.rerun()
+    else:
+        st.info(
+            "No assessments recorded yet. Complete a patient assessment "
+            "to add its prediction to this history."
+        )
+
+    st.markdown(
+        '<div class="medical-note">'
+        '<b>Privacy note:</b> History stores the assessment time, model prediction, '
+        'risk tier, and probability only. It does not store clinical input values. '
+        'It is session-only and may be cleared when the session ends or restarts.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
 # PATIENT ASSESSMENT
 # ============================================================
 
@@ -1017,6 +1124,9 @@ with tab_assess:
                 "risk_tier": risk_tier,
                 "explanation": explanation,
             }
+
+            # Add a minimal record only after a successful prediction.
+            record_prediction_history(st.session_state.last_result)
 
             result = st.session_state.last_result
 
