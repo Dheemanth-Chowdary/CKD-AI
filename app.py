@@ -387,13 +387,23 @@ if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
 # Session-only history: one latest assessment per Low / Moderate / High tier.
-# Only timestamp, prediction, probability and tier are stored (no clinical inputs).
+# Input values remain in this browser session only and are never written to disk.
 if "prediction_history" not in st.session_state:
     st.session_state.prediction_history = []
 
 def record_prediction_history(result):
-    """Keep one latest, minimal history record for each risk tier."""
+    """Keep one latest record per tier, including values that generated it."""
     tier = result["risk_tier"]
+    input_frame = result.get("input")
+    input_values = {}
+    if isinstance(input_frame, pd.DataFrame) and not input_frame.empty:
+        row = input_frame.iloc[0]
+        input_values = {
+            feature: float(row[feature])
+            for feature in FEATURES
+            if feature in row.index
+        }
+
     history = [
         entry for entry in st.session_state.prediction_history
         if entry["risk_tier"] != tier
@@ -403,8 +413,100 @@ def record_prediction_history(result):
         "risk_tier": tier,
         "prediction": result["prediction"],
         "probability": float(result["probability"]),
+        "input_values": input_values,
+        "source": result.get("history_source", "Clinical assessment"),
     })
     st.session_state.prediction_history = history[:3]
+
+
+def find_demo_profiles():
+    """Find input profiles whose actual model outputs fall in all three tiers.
+
+    Start with rows from the supplied dataset. If a tier (usually Moderate)
+    is missing, search blended examples derived from low/high model-score rows.
+    These are labeled as demos, not as new patient records.
+    """
+    moderate = float(RISK_THRESHOLDS.get("moderate", 0.33))
+    high = float(RISK_THRESHOLDS.get("high", 0.66))
+    base = DATASET[FEATURES].apply(pd.to_numeric, errors="coerce").dropna()
+    if base.empty:
+        raise ValueError("The supplied dataset has no complete feature rows.")
+
+    base_prob = MODEL.predict_proba(base[FEATURES])[:, 1]
+    candidate_frames = [base.copy()]
+    candidate_probabilities = [base_prob]
+
+    def has_tier(probabilities, tier):
+        if tier == "Low":
+            return bool(np.any(probabilities < moderate))
+        if tier == "Moderate":
+            return bool(np.any((probabilities >= moderate) & (probabilities < high)))
+        return bool(np.any(probabilities >= high))
+
+    missing_tiers = [
+        tier for tier in ["Low", "Moderate", "High"]
+        if not has_tier(base_prob, tier)
+    ]
+
+    if missing_tiers and np.any(base_prob < moderate) and np.any(base_prob >= high):
+        low_ids = np.where(base_prob < moderate)[0]
+        high_ids = np.where(base_prob >= high)[0]
+        low_ids = low_ids[np.argsort(base_prob[low_ids])[-min(20, len(low_ids)):]]
+        high_ids = high_ids[np.argsort(base_prob[high_ids])[:min(20, len(high_ids))]]
+        rng = np.random.default_rng(20261012)
+        blended_rows = []
+
+        for low_id in low_ids:
+            low_row = base.iloc[low_id]
+            for high_id in high_ids:
+                high_row = base.iloc[high_id]
+                for alpha in np.linspace(0.05, 0.95, 19):
+                    row_values = {}
+                    for feature in FEATURES:
+                        low_value = float(low_row[feature])
+                        high_value = float(high_row[feature])
+                        if feature in BINARY_FEATURES:
+                            value = high_value if rng.random() < alpha else low_value
+                        elif feature in ORDINAL_FEATURES:
+                            value = round((1.0 - alpha) * low_value + alpha * high_value)
+                        else:
+                            value = (1.0 - alpha) * low_value + alpha * high_value
+                        row_values[feature] = value
+                    blended_rows.append(row_values)
+
+        if blended_rows:
+            blended = pd.DataFrame(blended_rows, columns=FEATURES)
+            blended_prob = MODEL.predict_proba(blended)[:, 1]
+            candidate_frames.append(blended)
+            candidate_probabilities.append(blended_prob)
+
+    candidates = pd.concat(candidate_frames, ignore_index=True)
+    probabilities = np.concatenate(candidate_probabilities)
+    targets = {
+        "Low": moderate / 2.0,
+        "Moderate": (moderate + high) / 2.0,
+        "High": (high + 1.0) / 2.0,
+    }
+    profiles = {}
+    for tier in ["Low", "Moderate", "High"]:
+        if tier == "Low":
+            eligible = np.where(probabilities < moderate)[0]
+        elif tier == "Moderate":
+            eligible = np.where((probabilities >= moderate) & (probabilities < high))[0]
+        else:
+            eligible = np.where(probabilities >= high)[0]
+
+        if len(eligible):
+            chosen = eligible[np.argmin(np.abs(probabilities[eligible] - targets[tier]))]
+            profiles[tier] = {
+                "input": candidates.iloc[[chosen]][FEATURES].copy(),
+                "probability": float(probabilities[chosen]),
+                "prediction": "CKD Positive" if probabilities[chosen] >= 0.5 else "Not CKD",
+                "risk_tier": tier,
+                "history_source": "Demo profile (model-scored example)",
+            }
+
+    return profiles
 
 # Compatibility with earlier app versions.
 old = st.session_state.get("last_result")
@@ -600,15 +702,41 @@ with tab_history:
     )
     st.markdown(
         '<div class="section-subtitle">'
-        'Shows the latest assessment for each available risk tier. '
-        'History is kept only for this active browser session.'
+        'Keep one latest scored example for each level: High, Moderate and Low. '
+        'Expand a record to inspect the input values used by the model.'
         '</div>',
         unsafe_allow_html=True,
     )
 
+    st.markdown("#### Add values for all three levels")
+    st.caption(
+        "Generate one clearly labeled demo example per level using the loaded model. "
+        "The model's own probabilities determine the level; no probability or label is hard-coded."
+    )
+
+    if st.button("➕ Add demo values for High, Moderate and Low", type="primary"):
+        try:
+            profiles = find_demo_profiles()
+            required_tiers = ["High", "Moderate", "Low"]
+            missing_tiers = [tier for tier in required_tiers if tier not in profiles]
+            if missing_tiers:
+                st.warning(
+                    "Could not generate model-scored demo values for: "
+                    + ", ".join(missing_tiers)
+                    + ". No false tier labels were added. Try again after checking the model and risk thresholds."
+                )
+            else:
+                for tier in required_tiers:
+                    record_prediction_history(profiles[tier])
+                st.success("Added model-scored demo values for High, Moderate and Low.")
+                st.rerun()
+        except Exception as exc:
+            st.error("Could not generate demo values.")
+            st.exception(exc)
+
     history = st.session_state.get("prediction_history", [])
     tier_order = {"High": 0, "Moderate": 1, "Low": 2}
-    history = sorted(history, key=lambda x: tier_order.get(x["risk_tier"], 99))
+    history = sorted(history, key=lambda item: tier_order.get(item["risk_tier"], 99))
 
     if history:
         cols = st.columns(3)
@@ -631,8 +759,31 @@ with tab_history:
                     st.metric("CKD Probability", f'{entry["probability"] * 100:.2f}%')
                     st.caption(entry["prediction"])
                     st.caption(f'Assessed: {entry["timestamp"]}')
+                    st.caption(entry.get("source", "Clinical assessment"))
                 else:
                     st.info(f"No {tier.lower()}-risk assessment recorded yet.")
+
+        st.markdown("#### Saved input values")
+        for tier in ["High", "Moderate", "Low"]:
+            entry = by_tier.get(tier)
+            if entry:
+                with st.expander(
+                    f'{tier} risk · {entry["probability"] * 100:.2f}% · '
+                    f'{entry.get("source", "Clinical assessment")}'
+                ):
+                    input_values = entry.get("input_values", {})
+                    if input_values:
+                        values_df = pd.DataFrame([
+                            {
+                                "Clinical Feature": DISPLAY.get(feature, feature),
+                                "Feature Code": feature,
+                                "Value": value,
+                            }
+                            for feature, value in input_values.items()
+                        ])
+                        st.dataframe(values_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("This older history entry does not contain input values.")
 
         st.markdown("#### Recent assessments")
         history_df = pd.DataFrame([
@@ -641,16 +792,29 @@ with tab_history:
                 "Risk Tier": item["risk_tier"],
                 "Prediction": item["prediction"],
                 "CKD Probability": f'{item["probability"] * 100:.2f}%',
+                "Source": item.get("source", "Clinical assessment"),
             }
             for item in history
         ])
         st.dataframe(history_df, use_container_width=True, hide_index=True)
 
-        csv_data = history_df.to_csv(index=False).encode("utf-8")
+        export_rows = []
+        for item in history:
+            export_row = {
+                "Date / Time": item["timestamp"],
+                "Risk Tier": item["risk_tier"],
+                "Prediction": item["prediction"],
+                "CKD Probability": item["probability"],
+                "Source": item.get("source", "Clinical assessment"),
+            }
+            export_row.update(item.get("input_values", {}))
+            export_rows.append(export_row)
+        csv_data = pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8")
+
         st.download_button(
-            "⬇️ Download History (CSV)",
+            "⬇️ Download History and Input Values (CSV)",
             data=csv_data,
-            file_name="ckd_prediction_history.csv",
+            file_name="ckd_prediction_history_with_values.csv",
             mime="text/csv",
         )
 
@@ -659,15 +823,16 @@ with tab_history:
             st.rerun()
     else:
         st.info(
-            "No assessments recorded yet. Complete a patient assessment "
-            "to add its prediction to this history."
+            "No history is saved yet. Run an assessment, or use the demo button above "
+            "to add one model-scored example for each of the three levels."
         )
 
     st.markdown(
         '<div class="medical-note">'
-        '<b>Privacy note:</b> History stores the assessment time, model prediction, '
-        'risk tier, and probability only. It does not store clinical input values. '
-        'It is session-only and may be cleared when the session ends or restarts.'
+        '<b>Privacy note:</b> Input values are retained only in Streamlit session state '
+        'and are not written to disk by this app. Demo profiles are illustrative values '
+        'scored by the loaded model, not real patient records or medical advice. '
+        'Session history may be cleared when the session ends or restarts.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -1123,6 +1288,7 @@ with tab_assess:
                 "prediction": prediction,
                 "risk_tier": risk_tier,
                 "explanation": explanation,
+                "history_source": "Clinical assessment",
             }
 
             # Add a minimal record only after a successful prediction.
